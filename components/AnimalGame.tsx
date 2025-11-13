@@ -39,12 +39,12 @@ export default function AnimalGame() {
     const maxAttempts = 100 // 增加尝试次数
     
     // 动物大小约为屏幕的10-15%，所以需要留出足够边距
-    const margin = 10 // 边距10%，确保动物完全在屏幕内
+    const margin = 15 // 增加边距到15%，确保动物完全在屏幕内
     
     while (attempts < maxAttempts) {
       // 生成随机位置（留出边距，确保动物不会被裁切）
-      const x = Math.random() * (100 - 2 * margin) + margin // margin% - (100-margin)%
-      const y = Math.random() * (100 - 2 * margin) + margin // margin% - (100-margin)%
+      const x = Math.random() * (100 - 2 * margin) + margin // 15% - 85%
+      const y = Math.random() * (100 - 2 * margin) + margin // 15% - 85%
       
       // 检查是否与现有位置冲突
       const tooClose = existingPositions.some(pos => {
@@ -64,9 +64,9 @@ export default function AnimalGame() {
     
     // 如果尝试多次仍失败，使用预设的安全位置（确保在屏幕内）
     const safePositions = [
-      { x: 25, y: 30 },  // 左上区域
+      { x: 30, y: 30 },  // 左上区域
       { x: 50, y: 50 },  // 中心
-      { x: 75, y: 70 },  // 右下区域
+      { x: 70, y: 70 },  // 右下区域
     ]
     
     // 找到第一个不冲突的安全位置
