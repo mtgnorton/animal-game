@@ -371,18 +371,6 @@ export default function AnimalGame() {
       <AnimatePresence>
         {showFireworks && <Fireworks />}
       </AnimatePresence>
-
-      {/* 提示文字 */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.5 }}
-        className="absolute bottom-8 left-1/2 transform -translate-x-1/2 text-center"
-      >
-        <p className="text-2xl md:text-3xl font-bold text-white drop-shadow-lg">
-          点击小动物！
-        </p>
-      </motion.div>
     </div>
   )
 }
