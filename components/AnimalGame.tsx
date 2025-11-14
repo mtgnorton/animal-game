@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Fireworks from './Fireworks'
-import { playAnimalSound, playFireworkSound } from '@/utils/sounds'
+import { playAnimalSound, playFireworkSound, triggerVibration, toggleBackgroundMusic, isMusicPlaying } from '@/utils/sounds'
 
 // 动物配置
 const animals = [
@@ -24,15 +24,24 @@ interface AnimalInstance {
   velocity: { x: number; y: number }
 }
 
+interface RippleInstance {
+  id: string
+  x: number
+  y: number
+  color: string
+}
+
 export default function AnimalGame() {
   const [activeAnimals, setActiveAnimals] = useState<AnimalInstance[]>([])
   const [speed, setSpeed] = useState(1)
   const [clickCount, setClickCount] = useState(0)
   const [showFireworks, setShowFireworks] = useState(false)
+  const [ripples, setRipples] = useState<RippleInstance[]>([])
+  const [musicEnabled, setMusicEnabled] = useState(false)
   const animationFrameRef = useRef<number>()
   const lastTimeRef = useRef<number>(0)
   const animalRef = useRef<HTMLDivElement>(null)
-  const [animalMargin, setAnimalMargin] = useState(6) // 动态计算的边界
+  const [animalMargin, setAnimalMargin] = useState({ x: 6, y: 6 }) // 动态计算的边界（横向、纵向分别处理）
 
   // 设置动态视口高度，适配移动端浏览器
   useEffect(() => {
@@ -86,16 +95,19 @@ export default function AnimalGame() {
     setActiveAnimals(newAnimals)
   }
 
-  // 动态计算动物边界，确保左右对称
+  // 动态计算动物边界，确保在水平与垂直方向上都留足空间
   useEffect(() => {
     const calculateMargin = () => {
       if (animalRef.current) {
-        const animalWidth = animalRef.current.offsetWidth
+        const rect = animalRef.current.getBoundingClientRect()
         const screenWidth = window.innerWidth
-        // 动物半径占屏幕宽度的百分比
-        const halfWidthPercent = (animalWidth / 2 / screenWidth) * 100
-        // 添加小缓冲确保不超出边界
-        setAnimalMargin(Math.ceil(halfWidthPercent) + 1)
+        const screenHeight = window.innerHeight
+        const halfWidthPercent = (rect.width / 2 / screenWidth) * 100
+        const halfHeightPercent = (rect.height / 2 / screenHeight) * 100
+        setAnimalMargin({
+          x: Math.ceil(halfWidthPercent) + 1,
+          y: Math.ceil(halfHeightPercent) + 1,
+        })
       }
     }
 
@@ -107,7 +119,7 @@ export default function AnimalGame() {
       clearTimeout(timer)
       window.removeEventListener('resize', calculateMargin)
     }
-  }, [activeAnimals])
+  }, [activeAnimals.length])
 
   // 动物移动逻辑
   useEffect(() => {
@@ -127,18 +139,19 @@ export default function AnimalGame() {
         let newVelX = animal.velocity.x
         let newVelY = animal.velocity.y
 
-        // 使用动态计算的边界值，确保左右对称
-        const margin = animalMargin
+        // 使用动态计算的边界值，区分横纵方向
+        const marginX = animalMargin.x
+        const marginY = animalMargin.y
 
         // 检测边界碰撞并反弹
-        if (newX <= margin || newX >= 100 - margin) {
+        if (newX <= marginX || newX >= 100 - marginX) {
           newVelX = -animal.velocity.x
-          newX = newX <= margin ? margin : 100 - margin
+          newX = newX <= marginX ? marginX : 100 - marginX
         }
 
-        if (newY <= margin || newY >= 100 - margin) {
+        if (newY <= marginY || newY >= 100 - marginY) {
           newVelY = -animal.velocity.y
-          newY = newY <= margin ? margin : 100 - margin
+          newY = newY <= marginY ? marginY : 100 - marginY
         }
 
         return {
@@ -160,9 +173,32 @@ export default function AnimalGame() {
     }
   }, [activeAnimals.length, showFireworks, speed, animalMargin])
 
+  // 移除涟漪效果
+  const removeRipple = (id: string) => {
+    setRipples(prev => prev.filter(r => r.id !== id))
+  }
+
   // 点击动物处理
   const handleAnimalClick = (clickedAnimal: AnimalInstance) => (e: React.MouseEvent) => {
     e.stopPropagation()
+
+    // 创建涟漪效果
+    const rippleColors = [
+      '#FF6B9D', '#C44569', '#FFA07A', '#FFD93D',
+      '#6BCB77', '#4D96FF', '#9B59B6', '#E056FD'
+    ]
+    const randomColor = rippleColors[Math.floor(Math.random() * rippleColors.length)]
+    const newRipple: RippleInstance = {
+      id: `ripple-${Date.now()}-${Math.random()}`,
+      x: e.clientX,
+      y: e.clientY,
+      color: randomColor
+    }
+    console.log('创建涟漪效果:', { x: e.clientX, y: e.clientY, color: randomColor })
+    setRipples(prev => [...prev, newRipple])
+
+    // 触发震动反馈
+    triggerVibration()
 
     // 播放当前动物的叫声
     playAnimalSound(clickedAnimal.animal.sound)
@@ -177,8 +213,13 @@ export default function AnimalGame() {
 
     // 如果所有动物都被点击了，显示烟花
     if (remainingAnimals.length === 0) {
-      setShowFireworks(true)
-      playFireworkSound()
+      console.log('所有动物已点击，准备显示烟花')
+      // 延迟显示烟花，让动画完成
+      setTimeout(() => {
+        console.log('开始显示烟花')
+        setShowFireworks(true)
+        playFireworkSound()
+      }, 500)
 
       // 3秒后隐藏烟花，重新生成动物并加速
       setTimeout(() => {
@@ -191,8 +232,14 @@ export default function AnimalGame() {
         spawnAnimals()
         
         lastTimeRef.current = 0
-      }, 3000)
+      }, 3500)
     }
+  }
+
+  // 切换背景音乐
+  const handleMusicToggle = () => {
+    const isPlaying = toggleBackgroundMusic()
+    setMusicEnabled(isPlaying)
   }
 
   return (
@@ -223,6 +270,18 @@ export default function AnimalGame() {
         </div>
       </div>
 
+      {/* 背景音乐开关 */}
+      <motion.button
+        onClick={handleMusicToggle}
+        whileTap={{ scale: 0.9 }}
+        className="absolute bottom-4 right-4 bg-white/80 backdrop-blur-sm rounded-full p-4 shadow-lg z-10 cursor-pointer"
+        style={{ touchAction: 'auto' }}
+      >
+        <div className="text-3xl">
+          {musicEnabled ? '🔊' : '🔇'}
+        </div>
+      </motion.button>
+
       {/* 跑动的动物 */}
       <AnimatePresence>
         {activeAnimals.map((animalInstance, index) => (
@@ -235,10 +294,15 @@ export default function AnimalGame() {
               opacity: 1,
             }}
             exit={{ 
-              scale: 0, 
-              rotate: 360, 
-              opacity: 0,
-              transition: { duration: 0.3 }
+              scale: [1, 1.8, 0],
+              rotate: [0, 180, 720],
+              y: [0, -80, 0],
+              opacity: [1, 1, 0],
+              transition: { 
+                duration: 0.7,
+                times: [0, 0.5, 1],
+                ease: ["easeOut", "easeIn"]
+              }
             }}
             whileTap={{ scale: 0.9 }}
             style={{
@@ -279,6 +343,29 @@ export default function AnimalGame() {
           </motion.div>
         ))}
       </AnimatePresence>
+
+      {/* 涟漪效果 */}
+      <div className="fixed inset-0 pointer-events-none z-30">
+        {ripples.map((ripple) => (
+          <motion.div
+            key={ripple.id}
+            initial={{ scale: 0, opacity: 1 }}
+            animate={{ scale: 4, opacity: 0 }}
+            transition={{ duration: 0.8, ease: 'easeOut' }}
+            onAnimationComplete={() => removeRipple(ripple.id)}
+            style={{
+              position: 'absolute',
+              left: ripple.x,
+              top: ripple.y,
+              width: '120px',
+              height: '120px',
+              borderRadius: '50%',
+              border: `5px solid ${ripple.color}`,
+              transform: 'translate(-50%, -50%)',
+            }}
+          />
+        ))}
+      </div>
 
       {/* 烟花特效 */}
       <AnimatePresence>

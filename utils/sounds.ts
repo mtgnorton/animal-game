@@ -257,3 +257,64 @@ export function playFireworkSound() {
 export function playSound() {
   playAnimalSound('default')
 }
+
+// 震动反馈
+export function triggerVibration() {
+  if ('vibrate' in navigator) {
+    // 短促的震动反馈，50ms
+    navigator.vibrate(50)
+    console.log('触发震动反馈')
+  } else {
+    console.log('设备不支持震动API')
+  }
+}
+
+// 背景音乐管理
+let bgMusicAudio: HTMLAudioElement | null = null
+let isBgMusicPlaying = false
+
+export function initBackgroundMusic() {
+  if (!bgMusicAudio) {
+    bgMusicAudio = new Audio('/resource/Little_Jumping_Frog.mp3')
+    bgMusicAudio.loop = true
+    bgMusicAudio.volume = 0.3 // 设置音量为30%
+    console.log('背景音乐已初始化')
+  }
+}
+
+export function playBackgroundMusic() {
+  try {
+    if (!bgMusicAudio) {
+      initBackgroundMusic()
+    }
+    if (bgMusicAudio && !isBgMusicPlaying) {
+      bgMusicAudio.play()
+      isBgMusicPlaying = true
+      console.log('背景音乐开始播放')
+    }
+  } catch (error) {
+    console.log('背景音乐播放失败:', error)
+  }
+}
+
+export function pauseBackgroundMusic() {
+  if (bgMusicAudio && isBgMusicPlaying) {
+    bgMusicAudio.pause()
+    isBgMusicPlaying = false
+    console.log('背景音乐已暂停')
+  }
+}
+
+export function toggleBackgroundMusic(): boolean {
+  if (isBgMusicPlaying) {
+    pauseBackgroundMusic()
+    return false
+  } else {
+    playBackgroundMusic()
+    return true
+  }
+}
+
+export function isMusicPlaying(): boolean {
+  return isBgMusicPlaying
+}
