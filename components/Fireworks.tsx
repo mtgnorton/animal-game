@@ -1,149 +1,236 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { useEffect, useState } from 'react'
 
-interface FireworkParticle {
-  id: number
+interface Particle {
   x: number
   y: number
+  vx: number
+  vy: number
   color: string
-  angle: number
-  distance: number
-}
-
-interface Firework {
-  id: number
-  x: number
-  y: number
-  particles: FireworkParticle[]
+  isLauncher: boolean
+  alpha: number
+  life: number
 }
 
 export default function Fireworks() {
-  const [fireworks, setFireworks] = useState<Firework[]>([])
-  
-  const colors = [
-    'bg-red-500',
-    'bg-orange-500', 
-    'bg-yellow-500',
-    'bg-green-500',
-    'bg-blue-500',
-    'bg-indigo-500',
-    'bg-purple-500',
-    'bg-pink-500',
-  ]
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const particlesRef = useRef<Particle[]>([])
+  const animationFrameRef = useRef<number>()
+  const launchIntervalRef = useRef<NodeJS.Timeout>()
 
-  useEffect(() => {
-    // 生成多个烟花
-    const newFireworks: Firework[] = []
-    const fireworkCount = 15 // 增加烟花数量到15个
-    
-    for (let i = 0; i < fireworkCount; i++) {
-      const x = Math.random() * 100 // 0-100%
-      const y = Math.random() * 80 + 10 // 10-90%
-      const particles: FireworkParticle[] = []
-      const particleCount = 30 // 增加每个烟花的粒子数到30
-      const color = colors[Math.floor(Math.random() * colors.length)]
-      
-      // 为每个烟花生成粒子
-      for (let j = 0; j < particleCount; j++) {
-        const angle = (Math.PI * 2 * j) / particleCount
-        const distance = 100 + Math.random() * 50 // 随机距离
-        
-        particles.push({
-          id: j,
-          x,
-          y,
-          color,
-          angle,
-          distance,
-        })
-      }
-      
-      newFireworks.push({
-        id: i,
+  const gravity = 0.05
+  // 游戏背景色的RGB值用于拖尾效果
+  // from-blue-200 via-purple-200 to-pink-200 的平均色
+  const bgColor = 'rgba(220, 210, 230, 0.2)'
+
+  const random = (min: number, max: number) => {
+    return Math.random() * (max - min) + min
+  }
+
+  const createExplosion = (x: number, y: number, color: string) => {
+    const particleCount = 100
+    for (let i = 0; i < particleCount; i++) {
+      const angle = Math.random() * Math.PI * 2
+      const speed = random(1, 5)
+      const vx = Math.cos(angle) * speed
+      const vy = Math.sin(angle) * speed
+
+      particlesRef.current.push({
         x,
         y,
-        particles,
+        vx,
+        vy,
+        color,
+        isLauncher: false,
+        alpha: 1,
+        life: random(30, 60),
       })
     }
+  }
+
+  const autoLaunchFirework = (canvas: HTMLCanvasElement) => {
+    let startX: number, startY: number
+    let targetX: number, targetY: number
+    const edge = Math.floor(random(0, 4))
+
+    switch (edge) {
+      case 0: // 底部
+        startX = random(0, canvas.width)
+        startY = canvas.height
+        targetX = random(canvas.width * 0.1, canvas.width * 0.9)
+        targetY = random(canvas.height * 0.1, canvas.height * 0.5)
+        break
+      case 1: // 顶部
+        startX = random(0, canvas.width)
+        startY = 0
+        targetX = random(canvas.width * 0.1, canvas.width * 0.9)
+        targetY = random(canvas.height * 0.5, canvas.height * 0.9)
+        break
+      case 2: // 左侧
+        startX = 0
+        startY = random(0, canvas.height)
+        targetX = random(canvas.width * 0.1, canvas.width * 0.9)
+        targetY = random(canvas.height * 0.1, canvas.height * 0.9)
+        break
+      case 3: // 右侧
+        startX = canvas.width
+        startY = random(0, canvas.height)
+        targetX = random(canvas.width * 0.1, canvas.width * 0.9)
+        targetY = random(canvas.height * 0.1, canvas.height * 0.9)
+        break
+      default:
+        startX = canvas.width / 2
+        startY = canvas.height
+        targetX = canvas.width / 2
+        targetY = canvas.height / 2
+    }
+
+    const angle = Math.atan2(targetY - startY, targetX - startX)
+    const speed = random(15, 25)
+    const vx = Math.cos(angle) * speed
+    const vy = Math.sin(angle) * speed
+
+    const hue = random(0, 360)
+    // 在浅色背景上，亮度60%的颜色效果更好
+    const color = `hsl(${hue}, 100%, 60%)`
+
+    particlesRef.current.push({
+      x: startX,
+      y: startY,
+      vx,
+      vy,
+      color,
+      isLauncher: true,
+      alpha: 1,
+      life: random(30, 60),
+    })
+  }
+
+  const updateParticle = (p: Particle) => {
+    p.x += p.vx
+    p.y += p.vy
+
+    if (!p.isLauncher) {
+      // 爆炸的火花
+      p.vy += gravity
+      p.vx *= 0.98
+      p.vy *= 0.98
+      p.alpha -= 0.02
+    } else {
+      // 火箭
+      p.vx *= 0.99
+      p.vy *= 0.99
+      p.life--
+      
+      if (p.life <= 0) {
+        p.alpha = 0
+        createExplosion(p.x, p.y, p.color)
+      }
+      
+      if (p.life < 15) {
+        p.vy += gravity * 0.5
+      }
+    }
+  }
+
+  const drawParticle = (ctx: CanvasRenderingContext2D, p: Particle) => {
+    ctx.save()
+    ctx.globalAlpha = p.alpha
     
-    setFireworks(newFireworks)
+    // 为粒子添加阴影，在浅色背景上更清晰可见
+    ctx.shadowBlur = 5
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)'
     
-    // 延长持续时间到4秒
-    const timer = setTimeout(() => {
-      setFireworks([])
-    }, 4000)
-    
-    return () => clearTimeout(timer)
+    ctx.fillStyle = p.color
+    ctx.beginPath()
+    ctx.arc(p.x, p.y, 2, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+  }
+
+  const animate = () => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    // 使用半透明的背景色覆盖，产生拖尾效果
+    ctx.fillStyle = bgColor
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+    // 更新和绘制所有粒子
+    for (let i = particlesRef.current.length - 1; i >= 0; i--) {
+      const p = particlesRef.current[i]
+      updateParticle(p)
+      drawParticle(ctx, p)
+
+      // 移除消失的粒子
+      if (
+        p.alpha <= 0 ||
+        p.x < -100 ||
+        p.x > canvas.width + 100 ||
+        p.y < -100 ||
+        p.y > canvas.height + 100
+      ) {
+        particlesRef.current.splice(i, 1)
+      }
+    }
+
+    animationFrameRef.current = requestAnimationFrame(animate)
+  }
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    // 设置canvas尺寸
+    const resizeCanvas = () => {
+      canvas.width = window.innerWidth
+      canvas.height = window.innerHeight
+      // 初始化时清空背景（透明）
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+    }
+    resizeCanvas()
+    window.addEventListener('resize', resizeCanvas)
+
+    // 开始动画
+    animate()
+
+    // 定期发射烟花
+    launchIntervalRef.current = setInterval(() => {
+      autoLaunchFirework(canvas)
+    }, 150)
+
+    // 清理函数
+    return () => {
+      window.removeEventListener('resize', resizeCanvas)
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current)
+      }
+      if (launchIntervalRef.current) {
+        clearInterval(launchIntervalRef.current)
+      }
+    }
   }, [])
 
   return (
-    <motion.div
+    <motion.div 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 pointer-events-none z-50"
+      transition={{ duration: 0.3 }}
+      className="fixed inset-0 pointer-events-none z-40"
     >
-      {/* 烟花粒子 */}
-      {fireworks.map((firework) => (
-        <div key={firework.id}>
-          {firework.particles.map((particle) => {
-            const endX = firework.x + Math.cos(particle.angle) * particle.distance / 10
-            const endY = firework.y + Math.sin(particle.angle) * particle.distance / 10
-            
-            return (
-              <motion.div
-                key={`${firework.id}-${particle.id}`}
-                initial={{
-                  left: `${firework.x}%`,
-                  top: `${firework.y}%`,
-                  scale: 0,
-                  opacity: 1,
-                }}
-                animate={{
-                  left: `${endX}%`,
-                  top: `${endY}%`,
-                  scale: [0, 1, 0.5, 0],
-                  opacity: [1, 1, 0.5, 0],
-                }}
-                transition={{
-                  duration: 2.5,
-                  ease: 'easeOut',
-                  times: [0, 0.3, 0.7, 1],
-                }}
-                className={`absolute w-3 h-3 rounded-full ${particle.color}`}
-                style={{
-                  boxShadow: `0 0 10px ${particle.color}`,
-                }}
-              />
-            )
-          })}
-          
-          {/* 烟花中心闪光 */}
-          <motion.div
-            initial={{
-              left: `${firework.x}%`,
-              top: `${firework.y}%`,
-              scale: 0,
-              opacity: 1,
-            }}
-            animate={{
-              scale: [0, 2, 0],
-              opacity: [1, 0.8, 0],
-            }}
-            transition={{
-              duration: 0.8,
-              ease: 'easeOut',
-            }}
-            className="absolute w-8 h-8 rounded-full bg-white"
-            style={{
-              transform: 'translate(-50%, -50%)',
-              filter: 'blur(4px)',
-            }}
-          />
-        </div>
-      ))}
+      <canvas
+        ref={canvasRef}
+        className="absolute top-0 left-0 w-full h-full"
+      />
       
     </motion.div>
   )

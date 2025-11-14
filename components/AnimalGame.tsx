@@ -1,268 +1,282 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Cat, Dog, Bird, Rabbit, Fish, Squirrel, Turtle, Bug } from 'lucide-react'
-import Particle from './Particle'
 import Fireworks from './Fireworks'
 import { playAnimalSound, playFireworkSound } from '@/utils/sounds'
 
 // 动物配置
 const animals = [
-  { id: 'cat', Icon: Cat, sound: 'meow', color: 'bg-orange-400', emoji: '🐱' },
-  { id: 'dog', Icon: Dog, sound: 'woof', color: 'bg-amber-600', emoji: '🐶' },
-  { id: 'bird', Icon: Bird, sound: 'chirp', color: 'bg-sky-400', emoji: '🐦' },
-  { id: 'rabbit', Icon: Rabbit, sound: 'squeak', color: 'bg-pink-400', emoji: '🐰' },
-  { id: 'fish', Icon: Fish, sound: 'bubble', color: 'bg-blue-400', emoji: '🐠' },
-  { id: 'squirrel', Icon: Squirrel, sound: 'chatter', color: 'bg-yellow-600', emoji: '🐿️' },
-  { id: 'turtle', Icon: Turtle, sound: 'slow', color: 'bg-green-500', emoji: '🐢' },
-  { id: 'bug', Icon: Bug, sound: 'buzz', color: 'bg-lime-500', emoji: '🐛' },
+  { id: 'rabbit', emoji: '🐰', color: 'bg-pink-400', sound: 'rabbit' },
+  { id: 'cat', emoji: '🐱', color: 'bg-orange-400', sound: 'cat' },
+  { id: 'dog', emoji: '🐶', color: 'bg-amber-600', sound: 'dog' },
+  { id: 'bird', emoji: '🐦', color: 'bg-sky-400', sound: 'bird' },
+  { id: 'fish', emoji: '🐠', color: 'bg-blue-400', sound: 'fish' },
+  { id: 'squirrel', emoji: '🐿️', color: 'bg-yellow-600', sound: 'squirrel' },
+  { id: 'turtle', emoji: '🐢', color: 'bg-green-500', sound: 'turtle' },
+  { id: 'bug', emoji: '🐛', color: 'bg-lime-500', sound: 'bug' },
 ]
 
 interface AnimalInstance {
   id: string
   animal: typeof animals[0]
   position: { x: number; y: number }
+  velocity: { x: number; y: number }
 }
 
 export default function AnimalGame() {
   const [activeAnimals, setActiveAnimals] = useState<AnimalInstance[]>([])
+  const [speed, setSpeed] = useState(1)
   const [clickCount, setClickCount] = useState(0)
-  const [particles, setParticles] = useState<Array<{ id: number; x: number; y: number; color: string }>>([])
   const [showFireworks, setShowFireworks] = useState(false)
+  const animationFrameRef = useRef<number>()
+  const lastTimeRef = useRef<number>(0)
+  const animalRef = useRef<HTMLDivElement>(null)
+  const [animalMargin, setAnimalMargin] = useState(6) // 动态计算的边界
 
-  // 生成随机位置（确保不重叠）
-  const generateRandomPosition = useCallback((existingPositions: { x: number; y: number }[]) => {
-    // 最小间距（百分比单位），确保动物之间有足够距离
-    const minDistancePercent = 25 // 屏幕宽度的25%
-    let attempts = 0
-    const maxAttempts = 100 // 增加尝试次数
-    
-    // 动物大小约为屏幕的10-15%，所以需要留出足够边距
-    const margin = 15 // 增加边距到15%，确保动物完全在屏幕内
-    
-    while (attempts < maxAttempts) {
-      // 生成随机位置（留出边距，确保动物不会被裁切）
-      const x = Math.random() * (100 - 2 * margin) + margin // 15% - 85%
-      const y = Math.random() * (100 - 2 * margin) + margin // 15% - 85%
-      
-      // 检查是否与现有位置冲突
-      const tooClose = existingPositions.some(pos => {
-        // 计算欧几里得距离（百分比单位）
-        const dx = pos.x - x
-        const dy = pos.y - y
-        const distance = Math.sqrt(dx * dx + dy * dy)
-        return distance < minDistancePercent
-      })
-      
-      if (!tooClose) {
-        return { x, y }
-      }
-      
-      attempts++
+  // 设置动态视口高度，适配移动端浏览器
+  useEffect(() => {
+    const setAppHeight = () => {
+      const vh = window.innerHeight * 0.01
+      document.documentElement.style.setProperty('--app-height', `${window.innerHeight}px`)
     }
     
-    // 如果尝试多次仍失败，使用预设的安全位置（确保在屏幕内）
-    const safePositions = [
-      { x: 30, y: 30 },  // 左上区域
-      { x: 50, y: 50 },  // 中心
-      { x: 70, y: 70 },  // 右下区域
-    ]
+    setAppHeight()
+    window.addEventListener('resize', setAppHeight)
+    window.addEventListener('orientationchange', setAppHeight)
     
-    // 找到第一个不冲突的安全位置
-    for (const pos of safePositions) {
-      const tooClose = existingPositions.some(existing => {
-        const dx = existing.x - pos.x
-        const dy = existing.y - pos.y
-        const distance = Math.sqrt(dx * dx + dy * dy)
-        return distance < minDistancePercent
-      })
-      
-      if (!tooClose) {
-        return pos
-      }
+    return () => {
+      window.removeEventListener('resize', setAppHeight)
+      window.removeEventListener('orientationchange', setAppHeight)
     }
-    
-    // 最后的兜底方案
-    return safePositions[existingPositions.length % safePositions.length]
   }, [])
 
-  // 生成新的动物组
-  const spawnAnimals = useCallback(() => {
-    const positions: { x: number; y: number }[] = []
-    const newAnimals: AnimalInstance[] = []
+  // 初始化两个动物
+  useEffect(() => {
+    spawnAnimals()
+  }, [])
+
+  // 生成2-6个不同的动物
+  const spawnAnimals = () => {
+    // 随机数量：2到6之间
+    const count = Math.floor(Math.random() * 5) + 2 // 2, 3, 4, 5, 6
     
-    // 随机选择3个不同的动物
     const shuffled = [...animals].sort(() => Math.random() - 0.5)
-    const selectedAnimals = shuffled.slice(0, 3)
+    const selectedAnimals = shuffled.slice(0, count)
     
-    selectedAnimals.forEach((animal, index) => {
-      const position = generateRandomPosition(positions)
-      positions.push(position)
+    const newAnimals: AnimalInstance[] = selectedAnimals.map((animal, index) => {
+      const angle = Math.random() * Math.PI * 2
+      const baseSpeed = 0.5
+      const margin = 15
       
-      newAnimals.push({
+      return {
         id: `${animal.id}-${Date.now()}-${index}`,
         animal,
-        position
-      })
+        position: {
+          x: Math.random() * (100 - 2 * margin) + margin,
+          y: Math.random() * (100 - 2 * margin) + margin,
+        },
+        velocity: {
+          x: Math.cos(angle) * baseSpeed,
+          y: Math.sin(angle) * baseSpeed,
+        },
+      }
     })
     
     setActiveAnimals(newAnimals)
-  }, [generateRandomPosition])
+  }
 
-  // 初始化时生成动物
+  // 动态计算动物边界，确保左右对称
   useEffect(() => {
-    spawnAnimals()
-  }, [spawnAnimals])
-
-  // 当所有动物都被点击后，生成新的一组（烟花期间不生成）
-  useEffect(() => {
-    if (activeAnimals.length === 0 && !showFireworks) {
-      const timer = setTimeout(() => {
-        spawnAnimals()
-      }, 500)
-      return () => clearTimeout(timer)
+    const calculateMargin = () => {
+      if (animalRef.current) {
+        const animalWidth = animalRef.current.offsetWidth
+        const screenWidth = window.innerWidth
+        // 动物半径占屏幕宽度的百分比
+        const halfWidthPercent = (animalWidth / 2 / screenWidth) * 100
+        // 添加小缓冲确保不超出边界
+        setAnimalMargin(Math.ceil(halfWidthPercent) + 1)
+      }
     }
-  }, [activeAnimals.length, showFireworks, spawnAnimals])
+
+    // 延迟计算，确保DOM已渲染
+    const timer = setTimeout(calculateMargin, 100)
+    window.addEventListener('resize', calculateMargin)
+    
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('resize', calculateMargin)
+    }
+  }, [activeAnimals])
+
+  // 动物移动逻辑
+  useEffect(() => {
+    if (activeAnimals.length === 0 || showFireworks) return
+
+    const animate = (currentTime: number) => {
+      if (lastTimeRef.current === 0) {
+        lastTimeRef.current = currentTime
+      }
+
+      const deltaTime = (currentTime - lastTimeRef.current) / 16.67 // 标准化到60fps
+      lastTimeRef.current = currentTime
+
+      setActiveAnimals(prev => prev.map(animal => {
+        let newX = animal.position.x + animal.velocity.x * speed * deltaTime
+        let newY = animal.position.y + animal.velocity.y * speed * deltaTime
+        let newVelX = animal.velocity.x
+        let newVelY = animal.velocity.y
+
+        // 使用动态计算的边界值，确保左右对称
+        const margin = animalMargin
+
+        // 检测边界碰撞并反弹
+        if (newX <= margin || newX >= 100 - margin) {
+          newVelX = -animal.velocity.x
+          newX = newX <= margin ? margin : 100 - margin
+        }
+
+        if (newY <= margin || newY >= 100 - margin) {
+          newVelY = -animal.velocity.y
+          newY = newY <= margin ? margin : 100 - margin
+        }
+
+        return {
+          ...animal,
+          position: { x: newX, y: newY },
+          velocity: { x: newVelX, y: newVelY },
+        }
+      }))
+
+      animationFrameRef.current = requestAnimationFrame(animate)
+    }
+
+    animationFrameRef.current = requestAnimationFrame(animate)
+
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current)
+      }
+    }
+  }, [activeAnimals.length, showFireworks, speed, animalMargin])
 
   // 点击动物处理
-  const handleAnimalClick = (animalInstance: AnimalInstance, e: React.MouseEvent) => {
+  const handleAnimalClick = (clickedAnimal: AnimalInstance) => (e: React.MouseEvent) => {
     e.stopPropagation()
-    
-    const rect = e.currentTarget.getBoundingClientRect()
-    const x = e.clientX
-    const y = e.clientY
 
-    // 播放对应动物的叫声
-    playAnimalSound(animalInstance.animal.id)
+    // 播放当前动物的叫声
+    playAnimalSound(clickedAnimal.animal.sound)
 
     // 增加点击计数
     const newCount = clickCount + 1
     setClickCount(newCount)
 
-    // 生成粒子效果
-    const newParticles = Array.from({ length: 8 }, (_, i) => ({
-      id: Date.now() + i,
-      x,
-      y,
-      color: animalInstance.animal.color,
-    }))
-    setParticles(prev => [...prev, ...newParticles])
+    // 移除被点击的动物
+    const remainingAnimals = activeAnimals.filter(a => a.id !== clickedAnimal.id)
+    setActiveAnimals(remainingAnimals)
 
-    // 清理粒子
-    setTimeout(() => {
-      setParticles(prev => prev.filter(p => !newParticles.find(np => np.id === p.id)))
-    }, 1000)
-
-    // 检查是否达到里程碑
-    if (newCount % 3 === 0) {
-      // 每3次点击触发烟花
+    // 如果所有动物都被点击了，显示烟花
+    if (remainingAnimals.length === 0) {
       setShowFireworks(true)
-      playFireworkSound() // 播放烟花音效
-      
-      // 烟花持续4秒后消失，然后重新生成动物
+      playFireworkSound()
+
+      // 3秒后隐藏烟花，重新生成动物并加速
       setTimeout(() => {
         setShowFireworks(false)
-        // 烟花结束后，如果没有动物则立即生成
-        setTimeout(() => {
-          if (activeAnimals.length === 0) {
-            spawnAnimals()
-          }
-        }, 100)
-      }, 2000)
+        
+        // 增加速度（每次增加15%）
+        setSpeed(prev => prev + 0.15)
+        
+        // 重新生成2-6个动物
+        spawnAnimals()
+        
+        lastTimeRef.current = 0
+      }, 3000)
     }
-
-    // 移除被点击的动物
-    setActiveAnimals(prev => prev.filter(a => a.id !== animalInstance.id))
   }
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-gradient-to-br from-blue-200 via-purple-200 to-pink-200">
+    <div 
+      className="relative overflow-hidden bg-gradient-to-br from-blue-200 via-purple-200 to-pink-200 select-none"
+      style={{
+        width: '100vw',
+        // 使用dvh（动态视口高度）适配移动端浏览器，回退到vh
+        height: 'var(--app-height, 100vh)',
+        touchAction: 'none',
+        WebkitUserSelect: 'none',
+        WebkitTouchCallout: 'none',
+        userSelect: 'none',
+      }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
       {/* 点击计数显示 */}
       <div className="absolute top-4 right-4 bg-white/80 backdrop-blur-sm rounded-full px-6 py-3 shadow-lg z-10">
         <div className="text-2xl font-bold text-purple-600">
-          {clickCount} 次
+          🎯 {clickCount} 次
         </div>
       </div>
 
-      {/* 剩余动物数量 */}
+      {/* 速度显示 */}
       <div className="absolute top-4 left-4 bg-white/80 backdrop-blur-sm rounded-full px-6 py-3 shadow-lg z-10">
         <div className="text-2xl font-bold text-green-600">
-          🎯 {activeAnimals.length}/3
+          ⚡ {speed.toFixed(1)}x
         </div>
       </div>
 
-      {/* 主游戏区域 - 多个动物 */}
-      <div className="w-full h-full relative">
-        <AnimatePresence>
-          {activeAnimals.map((animalInstance) => {
-            const AnimalIcon = animalInstance.animal.Icon
-            return (
-              <motion.div
-                key={animalInstance.id}
-                initial={{ scale: 0, rotate: -180, opacity: 0 }}
-                animate={{ 
-                  scale: 1, 
-                  rotate: 0, 
-                  opacity: 1,
-                }}
-                exit={{ 
-                  scale: 0, 
-                  rotate: 180, 
-                  opacity: 0,
-                  transition: { duration: 0.3 }
-                }}
-                whileTap={{ scale: 0.9 }}
-                transition={{ 
-                  type: 'spring', 
-                  stiffness: 260, 
-                  damping: 20 
-                }}
-                style={{
-                  position: 'absolute',
-                  left: `${animalInstance.position.x}%`,
-                  top: `${animalInstance.position.y}%`,
-                  transform: 'translate(-50%, -50%)',
-                  maxWidth: '200px', // 限制最大宽度
-                }}
-                className="cursor-pointer"
-                onClick={(e) => handleAnimalClick(animalInstance, e)}
-              >
-                {/* 动物图标背景 */}
-                <motion.div
-                  whileHover={{ scale: 1.1 }}
-                  className={`${animalInstance.animal.color} rounded-full p-8 md:p-12 shadow-2xl relative`}
-                >
-                  <AnimalIcon 
-                    className="w-24 h-24 md:w-32 md:h-32 text-white" 
-                    strokeWidth={2}
-                  />
-                  
-                  {/* Emoji 表情 */}
-                  <motion.div
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    transition={{ delay: 0.2 }}
-                    className="absolute -top-4 -right-4 text-4xl md:text-6xl"
-                  >
-                    {animalInstance.animal.emoji}
-                  </motion.div>
-                </motion.div>
-              </motion.div>
-            )
-          })}
-        </AnimatePresence>
-      </div>
-
-      {/* 粒子效果 */}
+      {/* 跑动的动物 */}
       <AnimatePresence>
-        {particles.map(particle => (
-          <Particle
-            key={particle.id}
-            x={particle.x}
-            y={particle.y}
-            color={particle.color}
-          />
+        {activeAnimals.map((animalInstance, index) => (
+          <motion.div
+            key={animalInstance.id}
+            initial={{ scale: 0, rotate: -180, opacity: 0 }}
+            animate={{ 
+              scale: 1, 
+              rotate: 0, 
+              opacity: 1,
+            }}
+            exit={{ 
+              scale: 0, 
+              rotate: 360, 
+              opacity: 0,
+              transition: { duration: 0.3 }
+            }}
+            whileTap={{ scale: 0.9 }}
+            style={{
+              position: 'absolute',
+              left: `${animalInstance.position.x}%`,
+              top: `${animalInstance.position.y}%`,
+              transform: 'translate(-50%, -50%)',
+            }}
+            className="cursor-pointer"
+            onClick={handleAnimalClick(animalInstance)}
+          >
+            {/* 动物emoji */}
+            <motion.div
+              ref={index === 0 ? animalRef : null}
+              whileHover={{ scale: 1.1 }}
+              animate={{
+                rotate: [0, -5, 5, -5, 0],
+              }}
+              transition={{
+                rotate: {
+                  duration: 0.5,
+                  repeat: Infinity,
+                  ease: "easeInOut"
+                }
+              }}
+              className="text-8xl md:text-9xl select-none"
+              style={{
+                filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.2))',
+                WebkitUserSelect: 'none',
+                WebkitTouchCallout: 'none',
+                userSelect: 'none',
+              }}
+              onContextMenu={(e) => e.preventDefault()}
+              onTouchStart={(e) => e.preventDefault()}
+            >
+              {animalInstance.animal.emoji}
+            </motion.div>
+          </motion.div>
         ))}
       </AnimatePresence>
 
