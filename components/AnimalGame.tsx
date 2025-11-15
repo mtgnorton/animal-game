@@ -33,7 +33,7 @@ interface RippleInstance {
 
 export default function AnimalGame() {
   const [activeAnimals, setActiveAnimals] = useState<AnimalInstance[]>([])
-  const [speed, setSpeed] = useState(0.5)
+  const [speed, setSpeed] = useState(0.1)
   const [clickCount, setClickCount] = useState(0)
   const [showFireworks, setShowFireworks] = useState(false)
   const [ripples, setRipples] = useState<RippleInstance[]>([])
@@ -225,8 +225,8 @@ export default function AnimalGame() {
       setTimeout(() => {
         setShowFireworks(false)
         
-        // 增加速度（每次增加0.1x）
-        setSpeed(prev => prev + 0.1)
+        // 增加速度（每次增加0.1x，最高1x）
+        setSpeed(prev => Math.min(prev + 0.1, 1))
         
         // 重新生成2-6个动物
         spawnAnimals()
